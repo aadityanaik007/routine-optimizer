@@ -35,7 +35,7 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-export async function getAppData(): Promise<AppData> {
+async function readCachedAppData(): Promise<AppData | undefined> {
   const database = await openDatabase();
   const stored = await new Promise<AppData | undefined>((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, "readonly");
@@ -44,6 +44,57 @@ export async function getAppData(): Promise<AppData> {
     request.onerror = () => reject(request.error);
   });
   database.close();
+  return stored;
+}
+
+async function writeCachedAppData(data: AppData): Promise<void> {
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(STORE_NAME, "readwrite");
+    transaction.objectStore(STORE_NAME).put(data, DATA_KEY);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error("Could not save locally"));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Local save was interrupted"));
+  });
+  database.close();
+}
+
+async function readCloudAppData(): Promise<{ status: "found" | "missing"; data?: AppData }> {
+  const response = await fetch("/api/data", { credentials: "same-origin", headers: { Accept: "application/json" } });
+  if (response.status === 404) return { status: "missing" };
+  if (!response.ok) throw new Error(response.status === 401 ? "Your session has expired." : "Could not load cloud data.");
+  const payload = await response.json() as { data?: AppData };
+  if (!payload.data) throw new Error("The cloud response did not contain application data.");
+  return { status: "found", data: payload.data };
+}
+
+async function writeCloudAppData(data: AppData): Promise<void> {
+  const response = await fetch("/api/data", {
+    method: "PUT",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ data }),
+  });
+  if (response.ok) return;
+  const payload = await response.json().catch(() => null) as { error?: string } | null;
+  throw new Error(payload?.error ?? "Could not sync your latest change.");
+}
+
+let cloudSaveQueue: Promise<void> = Promise.resolve();
+
+export async function getAppData(): Promise<AppData> {
+  const cached = await readCachedAppData();
+  let cloudStatus: "found" | "missing" | "unavailable" = "unavailable";
+  let cloudData: AppData | undefined;
+  try {
+    const cloud = await readCloudAppData();
+    cloudStatus = cloud.status;
+    cloudData = cloud.data;
+  } catch {
+    // Keep the browser cache usable during temporary network or backend outages.
+  }
+
+  const stored = cloudData ?? cached;
 
   if (stored) {
     let migrated: AppData = { ...stored, roadmap: stored.roadmap ?? [], gymRoadmap: stored.gymRoadmap ?? [] };
@@ -94,7 +145,11 @@ export async function getAppData(): Promise<AppData> {
       migrated = { ...migrated, gymRoadmap: [] };
       changed = true;
     }
-    if (changed) await saveAppData(migrated);
+    if (changed || cloudStatus === "missing") {
+      await saveAppData(migrated).catch(() => writeCachedAppData(migrated));
+    } else if (cloudStatus === "found") {
+      await writeCachedAppData(migrated);
+    }
     return migrated;
   }
 
@@ -104,13 +159,8 @@ export async function getAppData(): Promise<AppData> {
 }
 
 export async function saveAppData(data: AppData): Promise<void> {
-  const database = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(STORE_NAME, "readwrite");
-    transaction.objectStore(STORE_NAME).put(data, DATA_KEY);
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error ?? new Error("Could not save"));
-    transaction.onabort = () => reject(transaction.error ?? new Error("Save was interrupted"));
-  });
-  database.close();
+  await writeCachedAppData(data);
+  const queuedSave = cloudSaveQueue.catch(() => undefined).then(() => writeCloudAppData(data));
+  cloudSaveQueue = queuedSave;
+  await queuedSave;
 }

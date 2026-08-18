@@ -1,4 +1,4 @@
-import { BarChart3, Flame, LayoutGrid, Moon, Plus, Sun } from "lucide-react";
+import { BarChart3, Cloud, Flame, LayoutGrid, LogOut, Moon, Plus, Sun } from "lucide-react";
 import type { View } from "../types";
 import { Ring } from "./Ring";
 
@@ -6,12 +6,14 @@ interface SidebarProps {
   view: View;
   theme: "light" | "dark";
   streak: number;
+  userEmail: string;
   onNavigate: (view: "board" | "reports") => void;
   onNewGoal: () => void;
   onToggleTheme: () => void;
+  onSignOut: () => Promise<void>;
 }
 
-export function Sidebar({ view, theme, streak, onNavigate, onNewGoal, onToggleTheme }: SidebarProps) {
+export function Sidebar({ view, theme, streak, userEmail, onNavigate, onNewGoal, onToggleTheme, onSignOut }: SidebarProps) {
   return (
     <aside className="sidebar">
       <div className="sidebar-top">
@@ -26,6 +28,11 @@ export function Sidebar({ view, theme, streak, onNavigate, onNewGoal, onToggleTh
         <button className="primary-button sidebar-new" onClick={onNewGoal}><Plus size={17} /> New goal</button>
       </div>
       <div className="sidebar-footer">
+        <div className="account-card">
+          <Cloud size={17} />
+          <span><strong>{userEmail}</strong><small>Synced to cloud</small></span>
+          <button type="button" onClick={() => void onSignOut()} aria-label="Sign out" title="Sign out"><LogOut size={15} /></button>
+        </div>
         <div className={`streak-card ${streak ? "active" : ""}`}>
           <Flame size={19} />
           <div>{streak > 0 ? <><strong className="mono">{streak} day{streak === 1 ? "" : "s"}</strong><span>current streak</span></> : <span>No streak yet — finish a sub-task today</span>}</div>

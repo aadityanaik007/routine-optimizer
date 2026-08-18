@@ -18,7 +18,12 @@ import type { AppData, Category, Goal, Status, Subtask, View } from "./types";
 
 const makeId = () => crypto.randomUUID();
 
-export default function App() {
+interface AppProps {
+  userEmail: string;
+  onSignOut: () => Promise<void>;
+}
+
+export default function App({ userEmail, onSignOut }: AppProps) {
   const [data, setData] = useState<AppData | null>(null);
   const [view, setView] = useState<View>("board");
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
@@ -208,9 +213,11 @@ export default function App() {
         view={view}
         theme={data.theme}
         streak={completionStreak(data.goals)}
+        userEmail={userEmail}
         onNavigate={navigate}
         onNewGoal={() => setNewGoalOpen(true)}
         onToggleTheme={() => commit((current) => ({ ...current, theme: current.theme === "light" ? "dark" : "light" }))}
+        onSignOut={onSignOut}
       />
       <div className="main-area">
         {view === "reports" ? (
